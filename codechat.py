@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import glob as globlib, json, os, re, subprocess, urllib.request, sys, time
+import glob as globlib, json, os, re, subprocess, urllib.request, sys, time, base64, webbrowser
 
 TOOLS = {
     "glob": ("pattern", "path?"),
@@ -56,6 +56,13 @@ def log(msg, style="info"):
     }
     print(f"  {icons.get(style, icons['info'])} {C.gray}{msg}{C.reset}")
 
+def open_mermaid(code):
+    diagram = json.dumps({"code": code, "mermaid": {"theme": "dark"}})
+    encoded = base64.urlsafe_b64encode(diagram.encode()).decode()
+    url = f"https://mermaid.live/edit#base64:{encoded}"
+    webbrowser.open(url)
+    log("opened diagram in browser", "ok")
+
 def render(text):
     lines = text.split('\n')
     out = []
@@ -67,16 +74,20 @@ def render(text):
         if line.startswith('```'):
             if not in_code:
                 in_code = True
-                code_lang = line[3:].strip()
+                code_lang = line[3:].strip().lower()
                 code_buf = []
             else:
                 in_code = False
                 if code_buf:
-                    out.append(f"\n  {C.gray}{'─'*3} {code_lang or 'code'} {'─'*40}{C.reset}")
-                    for i, cl in enumerate(code_buf):
-                        num = f"{C.gray}{i+1:3}│{C.reset}"
-                        out.append(f"  {num} {C.bg} {C.white}{cl}{' '*(80-len(cl))} {C.reset}")
-                    out.append(f"  {C.gray}{'─'*50}{C.reset}\n")
+                    if code_lang == "mermaid":
+                        out.append(f"\n  {C.purple}◆ mermaid diagram{C.reset}")
+                        open_mermaid('\n'.join(code_buf))
+                    else:
+                        out.append(f"\n  {C.gray}{'─'*3} {code_lang or 'code'} {'─'*40}{C.reset}")
+                        for i, cl in enumerate(code_buf):
+                            num = f"{C.gray}{i+1:3}│{C.reset}"
+                            out.append(f"  {num} {C.bg} {C.white}{cl}{' '*(80-len(cl))} {C.reset}")
+                        out.append(f"  {C.gray}{'─'*50}{C.reset}\n")
             continue
 
         if in_code:
@@ -193,6 +204,7 @@ def chat(messages):
     while True:
         content, stop = call_api(messages)
         messages.append({"role": "assistant", "content": content})
+        tool_results = []
         for c in content:
             if c.get("type") == "text":
                 print()
@@ -206,7 +218,9 @@ def chat(messages):
                 if len(lines) > 6:
                     preview += f"\n  {C.gray}│ ... +{len(lines)-6} more lines{C.reset}"
                 print(preview)
-                messages[-1]["content"].append({"type": "tool_result", "tool_use_id": c["id"], "content": result})
+                tool_results.append({"type": "tool_result", "tool_use_id": c["id"], "content": result})
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
         if stop != "tool_use":
             break
     return messages
